@@ -33,7 +33,7 @@ def analyse():
         return jsonify({'error': 'Invalid input'}), 400
 
     w = pd.Series(weights_raw, index=tickers)
-    benchmark = 'BTC-USD'
+    benchmark = '^GSPC'
     all_tickers = list(set(tickers + [benchmark]))
 
     try:
