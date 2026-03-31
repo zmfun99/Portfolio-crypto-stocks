@@ -2,7 +2,6 @@ import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, request, jsonify, send_from_directory
-import sys
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -35,17 +34,18 @@ def analyse():
 
     try:
         df = yf.Tickers(all_tickers).history(period=period, auto_adjust=True)['Close']
+
         if hasattr(df.index, 'tz') and df.index.tz is not None:
             df = df.tz_localize(None)
-        df = df.dropna(how='all')
 
         for t in all_tickers:
             if t not in df.columns:
-                return jsonify({'error': f'No data found for {t}'}), 400
+                return jsonify({'error': f'No data found for {t}. Check the ticker symbol.'}), 400
 
-        df = df.ffill().dropna()
+        df = df.ffill().bfill().dropna(how='all')
 
-        daily_returns = df.pct_change().dropna()
+        daily_returns = df.pct_change().dropna(how='all')
+
         portfolio_return = (daily_returns[tickers] * w).sum(axis=1)
         benchmark_return = daily_returns[benchmark]
 
@@ -53,10 +53,13 @@ def analyse():
         portfolio_return = portfolio_return[common_index]
         benchmark_return = benchmark_return[common_index]
 
+        if len(portfolio_return) < 2:
+            return jsonify({'error': 'Not enough data for this period. Try a longer time range.'}), 400
+
         freq = 52 if period in ['5y', 'max'] else 252
 
         ann_vol = portfolio_return.std() * np.sqrt(freq)
-        ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1 if len(portfolio_return) > 0 else 0
+        ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1
         sharpe = ann_ret / ann_vol if ann_vol != 0 else 0
 
         var_b = benchmark_return.var()
@@ -87,42 +90,66 @@ def analyse():
                 config={'displayModeBar': False, 'scrollZoom': True}
             )
 
-        df100 = df[tickers] / df[tickers].iloc[0] * 100
+        first_valid = df[tickers].apply(lambda col: col.first_valid_index())
+        start_date = max(first_valid)
+        df_aligned = df[tickers].loc[start_date:].ffill().bfill()
+
+        df100 = df_aligned / df_aligned.iloc[0] * 100
         port100 = (portfolio_return + 1).cumprod() * 100
 
         fig1 = go.Figure(layout=make_layout('Basis 100'))
         for s in tickers:
-            fig1.add_scatter(x=df100.index.astype(str).tolist(),
-                             y=df100[s].tolist(), name=s, opacity=0.6)
-        fig1.add_scatter(x=port100.index.astype(str).tolist(),
-                         y=port100.tolist(), name='Portfolio',
-                         line=dict(width=4, color='white'))
+            fig1.add_scatter(
+                x=df100.index.astype(str).tolist(),
+                y=df100[s].tolist(),
+                name=s, opacity=0.6
+            )
+        fig1.add_scatter(
+            x=port100.index.astype(str).tolist(),
+            y=port100.tolist(),
+            name='Portfolio',
+            line=dict(width=4, color='white')
+        )
 
         fig2 = go.Figure(layout=make_layout('Daily Returns'))
-        fig2.add_scatter(x=portfolio_return.index.astype(str).tolist(),
-                         y=portfolio_return.tolist(), name='Portfolio')
+        fig2.add_scatter(
+            x=portfolio_return.index.astype(str).tolist(),
+            y=portfolio_return.tolist(),
+            name='Portfolio'
+        )
 
-        roll_vol = portfolio_return.rolling(20).std() * np.sqrt(freq)
+        roll_vol = portfolio_return.rolling(min(20, len(portfolio_return) // 2)).std() * np.sqrt(freq)
         fig3 = go.Figure(layout=make_layout('Rolling Volatility'))
-        fig3.add_scatter(x=roll_vol.index.astype(str).tolist(),
-                         y=roll_vol.tolist(), name='Portfolio',
-                         line=dict(width=3))
+        fig3.add_scatter(
+            x=roll_vol.index.astype(str).tolist(),
+            y=roll_vol.tolist(),
+            name='Portfolio',
+            line=dict(width=3)
+        )
 
         fig4 = go.Figure(layout=make_layout('Weights'))
-        fig4.add_pie(labels=list(w.index), values=list(w.values),
-                     hole=0.5, textinfo='label+percent')
+        fig4.add_pie(
+            labels=list(w.index),
+            values=list(w.values),
+            hole=0.5,
+            textinfo='label+percent'
+        )
 
         fig5 = go.Figure(layout=make_layout('Drawdown (%)'))
-        fig5.add_scatter(x=drawdown.index.astype(str).tolist(),
-                         y=(drawdown * 100).tolist(), name='Drawdown',
-                         fill='tozeroy', line=dict(color='red'))
+        fig5.add_scatter(
+            x=drawdown.index.astype(str).tolist(),
+            y=(drawdown * 100).tolist(),
+            name='Drawdown',
+            fill='tozeroy',
+            line=dict(color='red')
+        )
 
         return jsonify({
-            'ann_ret':      round(ann_ret * 100, 2),
-            'ann_vol':      round(ann_vol * 100, 2),
+            'ann_ret':      round(float(ann_ret) * 100, 2),
+            'ann_vol':      round(float(ann_vol) * 100, 2),
             'sharpe':       round(float(sharpe), 4),
             'beta':         round(float(beta), 4),
-            'max_drawdown': round(max_drawdown * 100, 2),
+            'max_drawdown': round(float(max_drawdown) * 100, 2),
             'best_day':     round(float(portfolio_return.max()) * 100, 2),
             'worst_day':    round(float(portfolio_return.min()) * 100, 2),
             'chart1': to_html(fig1),
