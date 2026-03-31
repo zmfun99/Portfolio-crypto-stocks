@@ -9,7 +9,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 import plotly.io as pio
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scripts'))
+sys.path.insert(0, os.path.dirname(__file__))
 import par84
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -38,32 +38,33 @@ def analyse():
 
     try:
         df = yf.Tickers(all_tickers).history(period=period, auto_adjust=True)['Close']
-if hasattr(df.index, 'tz') and df.index.tz is not None:
-    df = df.tz_localize(None)
-df = df.dropna(how='all')
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
+            df = df.tz_localize(None)
+        df = df.dropna(how='all')
 
-for t in all_tickers:
-    if t not in df.columns:
-        return jsonify({'error': f'No data found for {t}'}), 400
+        for t in all_tickers:
+            if t not in df.columns:
+                return jsonify({'error': f'No data found for {t}'}), 400
 
-df = df.ffill().dropna()
+        df = df.ffill().dropna()
 
-daily_returns = df.pct_change().dropna()
-portfolio_return = (daily_returns[tickers] * w).sum(axis=1)
-benchmark_return = daily_returns[benchmark]
+        daily_returns = df.pct_change().dropna()
+        portfolio_return = (daily_returns[tickers] * w).sum(axis=1)
+        benchmark_return = daily_returns[benchmark]
 
-common_index = portfolio_return.index.intersection(benchmark_return.index)
-portfolio_return = portfolio_return[common_index]
-benchmark_return = benchmark_return[common_index]
+        common_index = portfolio_return.index.intersection(benchmark_return.index)
+        portfolio_return = portfolio_return[common_index]
+        benchmark_return = benchmark_return[common_index]
 
-freq = 52 if period in ['5y', 'max'] else 252
+        freq = 52 if period in ['5y', 'max'] else 252
 
-ann_vol = portfolio_return.std() * np.sqrt(freq)
-ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1 if len(portfolio_return) > 0 else 0
-sharpe = ann_ret / ann_vol if ann_vol != 0 else 0
+        ann_vol = portfolio_return.std() * np.sqrt(freq)
+        ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1 if len(portfolio_return) > 0 else 0
+        sharpe = ann_ret / ann_vol if ann_vol != 0 else 0
 
-var_b = benchmark_return.var()
-beta = portfolio_return.cov(benchmark_return) / var_b if var_b != 0 else 0
+        var_b = benchmark_return.var()
+        beta = portfolio_return.cov(benchmark_return) / var_b if var_b != 0 else 0
+
         cumulative = (1 + portfolio_return).cumprod()
         drawdown = (cumulative - cumulative.cummax()) / cumulative.cummax()
         max_drawdown = float(drawdown.min())
@@ -122,8 +123,8 @@ beta = portfolio_return.cov(benchmark_return) / var_b if var_b != 0 else 0
         return jsonify({
             'ann_ret':      round(ann_ret * 100, 2),
             'ann_vol':      round(ann_vol * 100, 2),
-            'sharpe':       round(sharpe, 4),
-            'beta':         round(beta, 4),
+            'sharpe':       round(float(sharpe), 4),
+            'beta':         round(float(beta), 4),
             'max_drawdown': round(max_drawdown * 100, 2),
             'best_day':     round(float(portfolio_return.max()) * 100, 2),
             'worst_day':    round(float(portfolio_return.min()) * 100, 2),
