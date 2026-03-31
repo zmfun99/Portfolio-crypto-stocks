@@ -53,10 +53,11 @@ def analyse():
         freq = 52 if period in ['5y', 'max'] else 252
 
         ann_vol = portfolio_return.std() * np.sqrt(freq)
-        ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1
-        sharpe = ann_ret / ann_vol if ann_vol != 0 else 0
-        beta = portfolio_return.cov(benchmark_return) / benchmark_return.var()
+ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1 if len(portfolio_return) > 0 else 0
+sharpe = ann_ret / ann_vol if ann_vol != 0 else 0
 
+var_b = benchmark_return.var()
+beta = portfolio_return.cov(benchmark_return) / var_b if var_b != 0 else 0
         cumulative = (1 + portfolio_return).cumprod()
         drawdown = (cumulative - cumulative.cummax()) / cumulative.cummax()
         max_drawdown = float(drawdown.min())
