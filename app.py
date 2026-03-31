@@ -9,9 +9,6 @@ import yfinance as yf
 import plotly.graph_objects as go
 import plotly.io as pio
 
-sys.path.insert(0, os.path.dirname(__file__))
-import par84
-
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 @app.route('/')
