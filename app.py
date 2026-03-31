@@ -38,21 +38,27 @@ def analyse():
 
     try:
         df = yf.Tickers(all_tickers).history(period=period, auto_adjust=True)['Close']
-        if hasattr(df.index, 'tz') and df.index.tz is not None:
-            df = df.tz_localize(None)
-        df = df.dropna(how='all')
+if hasattr(df.index, 'tz') and df.index.tz is not None:
+    df = df.tz_localize(None)
+df = df.dropna(how='all')
 
-        for t in all_tickers:
-            if t not in df.columns:
-                return jsonify({'error': f'No data found for {t}'}), 400
+for t in all_tickers:
+    if t not in df.columns:
+        return jsonify({'error': f'No data found for {t}'}), 400
 
-        daily_returns = df.pct_change().dropna()
-        portfolio_return = (daily_returns[tickers] * w).sum(axis=1)
-        benchmark_return = daily_returns[benchmark]
+df = df.ffill().dropna()
 
-        freq = 52 if period in ['5y', 'max'] else 252
+daily_returns = df.pct_change().dropna()
+portfolio_return = (daily_returns[tickers] * w).sum(axis=1)
+benchmark_return = daily_returns[benchmark]
 
-        ann_vol = portfolio_return.std() * np.sqrt(freq)
+common_index = portfolio_return.index.intersection(benchmark_return.index)
+portfolio_return = portfolio_return[common_index]
+benchmark_return = benchmark_return[common_index]
+
+freq = 52 if period in ['5y', 'max'] else 252
+
+ann_vol = portfolio_return.std() * np.sqrt(freq)
 ann_ret = (1 + portfolio_return).prod() ** (freq / len(portfolio_return)) - 1 if len(portfolio_return) > 0 else 0
 sharpe = ann_ret / ann_vol if ann_vol != 0 else 0
 
